@@ -1,37 +1,36 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import os
 import time
 
 # 读取Excel表格
-df = pd.read_excel("你的班级或学校所对应的学生信息文档 默认excel表格")
+df = pd.read_excel(r"文件地址")
 
 # 初始化WebDriver（Edge浏览器）
 driver = webdriver.Edge()
-# 按需修改浏览器
 
-# 打开指定的网页
-driver.get("你的查分网站")
+# 初始网址
+url = "https://i0aew1vd.yichafen.com/qz/p7E8OWcMPt"
+driver.get(url)
+
+# 等待页面加载
+time.sleep(5)
 
 # 存储抓取到的数据
 output_data = []
 
 # 循环读取每一行的数据
 for index, row in df.iterrows():
-    # 切换到最外层的 iframe
-    outer_iframe = driver.find_element(By.TAG_NAME, 'iframe')
-    driver.switch_to.frame(outer_iframe)
-
     data1 = row[1]  # 从 Excel 表格中读取第二列的值
     data2 = str(row[2])[-4:]  # 从 Excel 表格中读取第三列的后四位
-    #data1对应姓名 data2对应查询码
     
     # 定位并输入数据到网页的输入框中
-    input1 = driver.find_element(By.NAME, 's_xingming')  # 定位第一个输入框
+    input1 = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, 's_xingming')))  # 定位第一个输入框
     input2 = driver.find_element(By.NAME, 's_chaxunma')  # 定位第二个输入框
-    # 自己找网站的输入位置
-    
+
     input1.clear()  # 清除第一个输入框中的内容
     input2.clear()  # 清除第二个输入框中的内容
     
@@ -41,25 +40,27 @@ for index, row in df.iterrows():
     # 定位带有“查询”字样的按钮并点击
     submit_button = driver.find_element(By.XPATH, '//button[contains(text(),"查询")]')
     submit_button.click()
-    # 按需修改按钮字样
-    
+
     # 等待页面加载
     time.sleep(0.5)
-    # 按需修改时间
-    
+
     # 抓取输出并保存
     elements = driver.find_elements(By.CLASS_NAME, 'right_cell')  # 查找所有包含输出数据的元素
     output_values = [element.text for element in elements]  # 提取所有元素的文本
     output_data.append([data1, data2] + output_values)  # 将 data1, data2 和所有输出值作为一行数据添加到 output_data 中
 
-    driver.refresh()  # 刷新页面
+    driver.get(url)  # 返回初始网址
     time.sleep(0.5)  # 等待页面加载
 
-# 将 output_data 保存到 Excel
-file_path = 'output.xlsx'
+# 检查输出数据的列数量并动态生成列名
+num_output_columns = len(output_data[0]) - 2  # 除去 'Input 1' 和 'Input 2' 列的输出列数
+columns = ['Input 1', 'Input 2'] + [f'Output {i+1}' for i in range(num_output_columns)]
 
-# 创建 DataFrame，所有值放在单独的行
-output_df = pd.DataFrame(output_data, columns=['Input 1', 'Input 2'] + [f'Output {i+1}' for i in range(len(output_data[0]) - 2)])
+# 将 output_data 转换为 DataFrame
+output_df = pd.DataFrame(output_data, columns=columns)
+
+# 将输出数据保存到 Excel
+file_path = '输出目录'
 
 # 如果文件已存在，尝试读取现有数据并更新
 if os.path.exists(file_path):
