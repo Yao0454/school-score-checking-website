@@ -1,5 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import time
 import os
@@ -62,32 +64,33 @@ def main_process(url, excel_file, output_folder, filename):
         output_data = []
 
         for index, row in df.iterrows():
-            outer_iframe = driver.find_element(By.TAG_NAME, 'iframe')
-            driver.switch_to.frame(outer_iframe)
+            data1 = row[1]  # 从 Excel 表格中读取第二列的值
+            data2 = str(row[2])[-4:]  # 从 Excel 表格中读取第三列的后四位
+    
+            # 定位并输入数据到网页的输入框中
+            input1 = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, 's_xingming')))  # 定位第一个输入框
+            input2 = driver.find_element(By.NAME, 's_chaxunma')  # 定位第二个输入框
 
-            data1 = row[1]
-            data2 = str(row[2])[-4:]
+            input1.clear()  # 清除第一个输入框中的内容
+            input2.clear()  # 清除第二个输入框中的内容
+    
+            input1.send_keys(str(data1))  # 将 data1 输入到第一个输入框
+            input2.send_keys(str(data2))  # 将 data2 输入到第二个输入框
 
-            input1 = driver.find_element(By.NAME, 's_xingming')
-            input2 = driver.find_element(By.NAME, 's_chaxunma')
-
-            input1.clear()
-            input2.clear()
-
-            input1.send_keys(str(data1))
-            input2.send_keys(str(data2))
-
+            # 定位带有“查询”字样的按钮并点击
             submit_button = driver.find_element(By.XPATH, '//button[contains(text(),"查询")]')
             submit_button.click()
 
+            # 等待页面加载
             time.sleep(0.5)
 
-            elements = driver.find_elements(By.CLASS_NAME, 'right_cell')
-            output_values = [element.text for element in elements]
-            output_data.append([data1, data2] + output_values)
+            # 抓取输出并保存
+            elements = driver.find_elements(By.CLASS_NAME, 'right_cell')  # 查找所有包含输出数据的元素
+            output_values = [element.text for element in elements]  # 提取所有元素的文本
+            output_data.append([data1, data2] + output_values)  # 将 data1, data2 和所有输出值作为一行数据添加到 output_data 中
 
-            driver.refresh()
-            time.sleep(0.5)
+            driver.get(url)  # 返回初始网址
+            time.sleep(0.5)  # 等待页面加载
 
         save_output(output_data, output_folder, filename)
         print(f"Data saved to {output_folder}/{filename}.xlsx")
