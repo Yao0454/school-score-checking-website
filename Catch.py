@@ -1,17 +1,19 @@
 import sys
 import os
 import pandas as pd
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QPushButton, QTextEdit, QFileDialog, QGroupBox, QFormLayout, QScrollArea
-from PyQt5.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QPushButton, QTextEdit, QFileDialog, QGroupBox, QFormLayout, QScrollArea, QSpinBox
+from PyQt6.QtCore import Qt
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class MyApp(QWidget):
     def __init__(self):
         super().__init__()
         self.selected_files = []  # 用于存储选择的文件路径
+        self.df = None  # 初始化 self.df
         self.initUI()
 
     def initUI(self):
@@ -37,7 +39,7 @@ class MyApp(QWidget):
         scroll_area.setWidget(self.file_list_groupbox)
         scroll_area.setWidgetResizable(True)  # 让QScrollArea根据内容自动调整大小
         scroll_area.setFixedHeight(150)  # 限制显示区域的高度
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 禁用水平滚动条
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # 禁用水平滚动条
 
         # 输入文件夹选择
         main_layout.addLayout(input_layout)
@@ -64,6 +66,14 @@ class MyApp(QWidget):
         self.url_edit = QLineEdit(self)
         self.url_edit.setPlaceholderText("请输入网址")
 
+        # 线程数量调节
+        thread_layout = QHBoxLayout()
+        self.thread_spinbox = QSpinBox(self)
+        self.thread_spinbox.setRange(1, 20)  # 设置线程数量范围
+        self.thread_spinbox.setValue(5)  # 设置默认值
+        thread_layout.addWidget(QLabel("线程数量:"))
+        thread_layout.addWidget(self.thread_spinbox)
+
         # 运行按钮
         run_button = QPushButton("运行", self)
         run_button.clicked.connect(self.run_process)
@@ -77,6 +87,7 @@ class MyApp(QWidget):
         main_layout.addWidget(self.manual_filename_edit)
         main_layout.addWidget(self.auto_name_checkbox)
         main_layout.addWidget(self.url_edit)
+        main_layout.addLayout(thread_layout)
         main_layout.addWidget(run_button)
         main_layout.addWidget(self.console_output)
 
@@ -126,26 +137,60 @@ class MyApp(QWidget):
             self.console_output.append("没有选择任何文件.")
             return
 
-        output_file = self.output_file_edit.text()
+        output_path = self.output_file_edit.text()
+        if not output_path:  # 确保输出路径不为空
+            self.console_output.append("没有选择输出路径.")
+            return
+
+        # 确保输出路径是一个有效的文件夹
+        if not os.path.isdir(output_path):
+            self.console_output.append(f"输出路径无效: {output_path}")
+            return
 
         # 如果没有勾选自动更改文件名，则使用手动输入的文件名
         if not self.auto_name_checkbox.isChecked():
-            output_file = os.path.join(os.path.dirname(output_file), self.manual_filename_edit.text())
+            manual_filename = self.manual_filename_edit.text()
+            if not manual_filename:
+                self.console_output.append("没有输入手动文件名.")
+                return
+            output_file = os.path.join(output_path, manual_filename)
+        else:
+            # 自动生成文件名将在抓取完成后进行
+            output_file = os.path.join(output_path, "temp_output.xlsx")
+
+        # 确保生成的输出路径是有效的
+        if not output_file.endswith(".xlsx"):
+            output_file += ".xlsx"
 
         # 显示控制台输出
+        self.console_output.append(f"输出文件路径: {output_file}")
         self.console_output.append("开始处理...")
 
-        # 批量处理选中的文件
-        for input_file in selected_files:
-            self.console_output.append(f"正在处理: {input_file}")
-            self.process_data(input_file, output_file)
+        # 获取线程数量
+        max_workers = self.thread_spinbox.value()
+
+        # 并行处理选中的文件
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(self.process_data, input_file, output_file) for input_file in selected_files]
+            for future in as_completed(futures):
+                future.result()  # 等待每个任务完成
+
+    def generate_auto_filename(self, data):
+        # 根据需要生成自动文件名，这里使用抓取数据中的第二列第一行的值
+        try:
+            if data:
+                new_filename = str(data[0][2]) + "班.xlsx"  # 使用抓取数据的第二列的值作为文件名
+                return new_filename
+        except Exception as e:
+            self.console_output.append(f"生成自动文件名时出错: {e}")
+        return "output.xlsx"
 
     def process_data(self, input_file, output_file):
         # 读取 Excel 文件
         df = pd.read_excel(input_file)
         self.console_output.append(f"读取输入文件: {input_file}")
 
-        # 初始化 WebDriver（假设使用 Chrome）
+        # 初始化 WebDriver（假设使用 Edge）
         try:
             driver = webdriver.Edge()
         except Exception as e:
@@ -196,8 +241,9 @@ class MyApp(QWidget):
 
         # 在数据抓取完成后生成文件名（第二列第一行的值）
         if output_data:
-            new_filename = str(output_data[0][2]) + "班.xlsx"  # 使用抓取的第二列的值作为文件名
-            output_file = os.path.join(os.path.dirname(output_file), new_filename)
+            if self.auto_name_checkbox.isChecked():
+                new_filename = self.generate_auto_filename(output_data)
+                output_file = os.path.join(os.path.dirname(output_file), new_filename)
             self.console_output.append(f"新的输出文件名: {output_file}")
 
             # 保存输出数据
@@ -210,4 +256,4 @@ class MyApp(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     ex = MyApp()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
